@@ -62,7 +62,7 @@
     code_change/3
 ]).
 
--record(connection, {socket=disconnected, serializer}).
+-record(connection, {socket, serializer}).
 
 %% @doc retrieve memcached stats
 stats() ->
