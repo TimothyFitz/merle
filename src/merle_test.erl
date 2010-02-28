@@ -93,24 +93,63 @@ mocked_socket_tests() ->
         }
     ].
        
+mocked_socket_noop_serializer_tests() ->
+    [
+        {
+            "Get Test",
+            fun (Socket) ->
+                erlymock_tcp:strict(
+                    Socket,
+                    <<"get test\r\n">>, 
+                    [{reply, iolist_to_binary([<<"VALUE test 0 3\r\nfoo\r\nEND\r\n">>])}]
+                )
+            end,
+            fun () -> <<"foo">> = merle:getkey("test") end
+        }
+    ].
+       
 mocked_socket_fixture_test_() ->
     lists:map(
         fun({Name, Setup, Run}) -> 
-            {Name, fun() -> mocked_socket_fixture(Setup, Run) end}
+            {"Mocked Socket (term_to_binary) Fixture: " ++ Name, fun() -> mocked_socket_fixture(Setup, Run) end}
         end,
         mocked_socket_tests()
     ).
     
+    
+mocked_socket_noop_serializer_fixture_test_() ->
+    lists:map(
+        fun({Name, Setup, Run}) -> 
+            {"Mocked Socket (noop Serializer) Fixture: " ++ Name, fun() -> mocked_socket_noop_serializer_fixture(Setup, Run) end}
+        end,
+        mocked_socket_noop_serializer_tests()
+    ).
+    
+       
+mocked_socket_fixture_template(Create) ->
+    fun (MockSetup, ActualRun) ->
+        erlymock:start(),
+        {ok, Socket} = erlymock_tcp:open(),
+        MockSetup(Socket),
+        erlymock:replay(),
+        inet:setopts(Socket, [{active,true}]),
+        try 
+            Create(Socket),
+            ActualRun(),
+            erlymock:verify()
+        after 
+            merle:disconnect()
+        end
+    end.
+    
 mocked_socket_fixture(MockSetup, ActualRun) ->
-    erlymock:start(),
-    {ok, Socket} = erlymock_tcp:open(),
-    MockSetup(Socket),
-    erlymock:replay(),
-    inet:setopts(Socket, [{active,true}]),
-    merle:create(Socket),
-    ActualRun(),
-    erlymock:verify(),
-    merle:disconnect().
+    CreateDefault = fun (Socket) -> merle:create(Socket) end,
+    (mocked_socket_fixture_template(CreateDefault))(MockSetup, ActualRun).
+    
+mocked_socket_noop_serializer_fixture(MockSetup, ActualRun) ->
+    Noop = fun (X) -> X end,
+    CreateNoop = fun (Socket) -> merle:create(Socket, {Noop, Noop}) end,
+    (mocked_socket_fixture_template(CreateNoop))(MockSetup, ActualRun).
 
 % Pull in and test: incr/decr
 % Pull in and test: ketama
