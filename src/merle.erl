@@ -64,6 +64,16 @@
 
 -record(connection, {socket, serializer}).
 
+maybe_atl(Key) when is_atom(Key) ->
+    atom_to_list(Key);
+maybe_atl(Key) ->
+    Key.
+    
+maybe_itl(Integer) when is_integer(Integer) ->
+    integer_to_list(Integer);
+maybe_itl(Integer) ->
+    Integer.
+
 %% @doc retrieve memcached stats
 stats() ->
     gen_server2:call(?SERVER, {stats}).
@@ -80,10 +90,8 @@ version() ->
     Version.
 
 %% @doc set the verbosity level of the logging output
-verbosity(Args) when is_integer(Args) ->
-    verbosity(integer_to_list(Args));
 verbosity(Args)->
-    case gen_server2:call(?SERVER, {verbosity, {Args}}) of
+    case gen_server2:call(?SERVER, {verbosity, {maybe_itl(Args)}}) of
         ["OK"] -> ok;
         [X] -> X
     end.
@@ -96,28 +104,22 @@ flushall() ->
     end.
 
 %% @doc invalidate all existing items based on the expire time argument
-flushall(Delay) when is_integer(Delay) ->
-    flushall(integer_to_list(Delay));
 flushall(Delay) ->
-    case gen_server2:call(?SERVER, {flushall, {Delay}}) of
+    case gen_server2:call(?SERVER, {flushall, {maybe_itl(Delay)}}) of
         ["OK"] -> ok;
         [X] -> X
     end.
 
 %% @doc retrieve value based off of key
-getkey(Key) when is_atom(Key) ->
-    getkey(atom_to_list(Key));
 getkey(Key) ->
-    case gen_server2:call(?SERVER, {getkey,{Key}}) of
+    case gen_server2:call(?SERVER, {getkey,{maybe_atl(Key)}}) of
         ["END"] -> undefined;
         [X] -> X
     end.
 
 %% @doc retrieve value based off of key for use with cas
-getskey(Key) when is_atom(Key) ->
-    getskey(atom_to_list(Key));
 getskey(Key) ->
-    case gen_server2:call(?SERVER, {getskey,{Key}}) of
+    case gen_server2:call(?SERVER, {getskey,{maybe_atl(Key)}}) of
         ["END"] -> undefined;
         [X] -> X
     end.
@@ -125,13 +127,8 @@ getskey(Key) ->
 %% @doc delete a key
 delete(Key) ->
     delete(Key, "0").
-
-delete(Key, Time) when is_atom(Key) ->
-    delete(atom_to_list(Key), Time);
-delete(Key, Time) when is_integer(Time) ->
-    delete(Key, integer_to_list(Time));
 delete(Key, Time) ->
-    case gen_server2:call(?SERVER, {delete, {Key, Time}}) of
+    case gen_server2:call(?SERVER, {delete, {maybe_atl(Key), maybe_itl(Time)}}) of
         ["DELETED"] -> ok;
         ["NOT_FOUND"] -> not_found;
         [X] -> X
@@ -162,16 +159,10 @@ delete(Key, Time) ->
 %% @doc Store a key/value pair.
 set(Key, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
-    set(Key, integer_to_list(Flag), "0", Value).
-
-set(Key, Flag, ExpTime, Value) when is_atom(Key) ->
-    set(atom_to_list(Key), Flag, ExpTime, Value);
-set(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
-    set(Key, integer_to_list(Flag), ExpTime, Value);
-set(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
-    set(Key, Flag, integer_to_list(ExpTime), Value);
+    set(Key, Flag, "0", Value).
 set(Key, Flag, ExpTime, Value) ->
-    case gen_server2:call(?SERVER, {set, {Key, Flag, ExpTime, Value}}) of
+    Args = {set, {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), maybe_itl(Value)}},
+    case gen_server2:call(?SERVER, Args) of
         ["STORED"] -> ok;
         ["NOT_STORED"] -> not_stored;
         [X] -> X
@@ -180,16 +171,10 @@ set(Key, Flag, ExpTime, Value) ->
 %% @doc Store a key/value pair if it doesn't already exist.
 add(Key, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
-    add(Key, integer_to_list(Flag), "0", Value).
-
-add(Key, Flag, ExpTime, Value) when is_atom(Key) ->
-    add(atom_to_list(Key), Flag, ExpTime, Value);
-add(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
-    add(Key, integer_to_list(Flag), ExpTime, Value);
-add(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
-    add(Key, Flag, integer_to_list(ExpTime), Value);
+    add(Key, Flag, "0", Value).
 add(Key, Flag, ExpTime, Value) ->
-    case gen_server2:call(?SERVER, {add, {Key, Flag, ExpTime, Value}}) of
+    Args = {add, {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), maybe_itl(Value)}},
+    case gen_server2:call(?SERVER, Args) of
         ["STORED"] -> ok;
         ["NOT_STORED"] -> not_stored;
         [X] -> X
@@ -218,16 +203,9 @@ cas(Key, CasUniq, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
     cas(Key, integer_to_list(Flag), "0", CasUniq, Value).
 
-cas(Key, Flag, ExpTime, CasUniq, Value) when is_atom(Key) ->
-    cas(atom_to_list(Key), Flag, ExpTime, CasUniq, Value);
-cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(Flag) ->
-    cas(Key, integer_to_list(Flag), ExpTime, CasUniq, Value);
-cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(ExpTime) ->
-    cas(Key, Flag, integer_to_list(ExpTime), CasUniq, Value);
-cas(Key, Flag, ExpTime, CasUniq, Value) when is_integer(CasUniq) ->
-    cas(Key, Flag, ExpTime, integer_to_list(CasUniq), Value);
 cas(Key, Flag, ExpTime, CasUniq, Value) ->
-    case gen_server2:call(?SERVER, {cas, {Key, Flag, ExpTime, CasUniq, Value}}) of
+    Args = {cas, {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), maybe_itl(CasUniq), Value}},
+    case gen_server2:call(?SERVER, Args) of
         ["STORED"] -> ok;
         ["NOT_STORED"] -> not_stored;
         [X] -> X

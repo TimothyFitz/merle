@@ -5,6 +5,8 @@
 -include_lib("eunit/include/eunit.hrl").
 
 mocked_socket_tests() ->
+    Value = term_to_binary("value"),
+    ValueSize = integer_to_list(byte_size(Value)),
     [
         {
             "Empty Get Test",
@@ -57,15 +59,37 @@ mocked_socket_tests() ->
         }, {
             "Set Test",
             fun (Socket) ->
-                Value = term_to_binary("value"),
-                ValueSize = integer_to_list(byte_size(Value)),
-                erlymock_tcp:strict(
-                    Socket, 
-                    iolist_to_binary([<<"set tkey 0 60 ">>, ValueSize, <<"\r\n">>, Value, <<"\r\n">>]),
-                    [{reply, <<"STORED\r\n">>}]
-                )
+                erlymock_tcp:strict(Socket, iolist_to_binary([<<"set tkey 0 60 ">>, ValueSize, <<"\r\n">>]), []),
+                erlymock_tcp:strict(Socket, iolist_to_binary([Value, <<"\r\n">>]), [{reply, <<"STORED\r\n">>}])
             end,
             fun () -> ok = merle:set("tkey", 0, 60, "value") end
+        }, {
+            "Add (Not Stored) Test",
+            fun (Socket) ->
+                erlymock_tcp:strict(Socket, iolist_to_binary([<<"add tkey 0 60 ">>, ValueSize, <<"\r\n">>]), []),
+                erlymock_tcp:strict(Socket, iolist_to_binary([Value, <<"\r\n">>]), [{reply, <<"NOT_STORED\r\n">>}])
+            end,
+            fun () -> not_stored = merle:add("tkey", 0, 60, "value") end
+        }, {
+            "Cas (Exists) Test",
+            fun (Socket) ->
+                erlymock_tcp:strict(Socket, iolist_to_binary([<<"cas tkey 0 60 ">>, ValueSize, <<" 1337\r\n">>]), []),
+                erlymock_tcp:strict(Socket, iolist_to_binary([Value, <<"\r\n">>]), [{reply, <<"EXISTS\r\n">>}])
+            end,
+            fun () -> "EXISTS" = merle:cas("tkey", 0, 60, 1337, "value") end
+        }, {
+            "Replace (Not Stored) Test",
+            fun (Socket) ->
+                erlymock_tcp:strict(Socket, iolist_to_binary([<<"replace tkey 0 60 ">>, ValueSize, <<"\r\n">>]), []),
+                erlymock_tcp:strict(Socket, iolist_to_binary([Value, <<"\r\n">>]), [{reply, <<"NOT_STORED\r\n">>}])
+            end,
+            fun () -> not_stored = merle:replace("tkey", 0, 60, "value") end
+        }, {
+            "Stats Test",
+            fun (Socket) ->
+                erlymock_tcp:strict(Socket, <<"stats\r\n">>, [{reply, <<"STAT skey svalue\r\nEND\r\n">>}])
+            end,
+            fun () -> ["STAT skey svalue", "END"] = merle:stats() end
         }
     ].
        
@@ -88,13 +112,5 @@ mocked_socket_fixture(MockSetup, ActualRun) ->
     erlymock:verify(),
     merle:disconnect().
 
-% stats
-% version
-% flushall
-% delete
-% set
-% add
-% replace
-% cas
 % Pull in and test: incr/decr
-% Pull in and test: 
+% Pull in and test: ketama
