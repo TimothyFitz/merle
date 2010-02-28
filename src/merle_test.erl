@@ -108,23 +108,23 @@ mocked_socket_noop_serializer_tests() ->
         }
     ].
        
-mocked_socket_fixture_test_() ->
+two_step_fixture(FixtureName, Fixture, Tests) ->
     lists:map(
-        fun({Name, Setup, Run}) -> 
-            {"Mocked Socket (term_to_binary) Fixture: " ++ Name, fun() -> mocked_socket_fixture(Setup, Run) end}
+        fun ({Name, StepOne, StepTwo}) ->
+            {FixtureName ++ ": " ++ Name, fun() -> Fixture(StepOne, StepTwo) end}
         end,
-        mocked_socket_tests()
+        Tests
     ).
     
-    
+mocked_socket_fixture_test_() ->
+    two_step_fixture("Mocked Socket (term_to_binary) Fixture", fun mocked_socket_fixture/2, mocked_socket_tests()).
+
 mocked_socket_noop_serializer_fixture_test_() ->
-    lists:map(
-        fun({Name, Setup, Run}) -> 
-            {"Mocked Socket (noop Serializer) Fixture: " ++ Name, fun() -> mocked_socket_noop_serializer_fixture(Setup, Run) end}
-        end,
+    two_step_fixture(
+        "Mocked Socket (noop serializer) Fixture", 
+        fun mocked_socket_noop_serializer_fixture/2, 
         mocked_socket_noop_serializer_tests()
     ).
-    
        
 mocked_socket_fixture_template(Create) ->
     fun (MockSetup, ActualRun) ->
