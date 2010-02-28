@@ -43,7 +43,7 @@
 -define(RANDOM_MAX, 65535).
 -define(DEFAULT_HOST, "localhost").
 -define(DEFAULT_PORT, 11211).
--define(DEFAULT_SERIALIZER, fun term_to_binary/1).
+-define(DEFAULT_SERIALIZER, {fun term_to_binary/1, fun binary_to_term/1}).
 -define(TCP_OPTS, [
     binary, {packet, raw}, {nodelay, true},{reuseaddr, true}, {active, true}
 ]).
@@ -62,7 +62,7 @@
     code_change/3
 ]).
 
--record(connection, {socket, serializer}).
+-record(connection, {socket, to_binary, from_binary}).
 
 maybe_atl(Key) when is_atom(Key) ->
     atom_to_list(Key);
@@ -161,8 +161,8 @@ set(Key, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
     set(Key, Flag, "0", Value).
 set(Key, Flag, ExpTime, Value) ->
-    Args = {set, {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), maybe_itl(Value)}},
-    case gen_server2:call(?SERVER, Args) of
+    Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
+    case gen_server2:call(?SERVER, {set, Args}) of
         ["STORED"] -> ok;
         ["NOT_STORED"] -> not_stored;
         [X] -> X
@@ -173,8 +173,8 @@ add(Key, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
     add(Key, Flag, "0", Value).
 add(Key, Flag, ExpTime, Value) ->
-    Args = {add, {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), maybe_itl(Value)}},
-    case gen_server2:call(?SERVER, Args) of
+    Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
+    case gen_server2:call(?SERVER, {add, Args}) of
         ["STORED"] -> ok;
         ["NOT_STORED"] -> not_stored;
         [X] -> X
@@ -185,14 +185,9 @@ replace(Key, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
     replace(Key, integer_to_list(Flag), "0", Value).
 
-replace(Key, Flag, ExpTime, Value) when is_atom(Key) ->
-    replace(atom_to_list(Key), Flag, ExpTime, Value);
-replace(Key, Flag, ExpTime, Value) when is_integer(Flag) ->
-    replace(Key, integer_to_list(Flag), ExpTime, Value);
-replace(Key, Flag, ExpTime, Value) when is_integer(ExpTime) ->
-    replace(Key, Flag, integer_to_list(ExpTime), Value);
 replace(Key, Flag, ExpTime, Value) ->
-    case gen_server2:call(?SERVER, {replace, {Key, Flag, ExpTime, Value}}) of
+    Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
+    case gen_server2:call(?SERVER, {replace, Args}) of
         ["STORED"] -> ok;
         ["NOT_STORED"] -> not_stored;
         [X] -> X
@@ -243,10 +238,12 @@ start_link(Args) ->
 %% @private
 init([{endpoint, Host, Port}, Serializer]) ->
     {ok, Socket} = gen_tcp:connect(Host, Port, ?TCP_OPTS),
-    {ok, #connection{socket=Socket, serializer=Serializer}};
+    {ToBinary, FromBinary} = Serializer,
+    {ok, #connection{socket=Socket, to_binary=ToBinary, from_binary=FromBinary}};
 
 init([{socket, Socket}, Serializer]) ->
-    {ok, #connection{socket=Socket, serializer=Serializer}}.
+    {ToBinary, FromBinary} = Serializer,
+    {ok, #connection{socket=Socket, to_binary=ToBinary, from_binary=FromBinary}}.
 
 handle_call({stop}, _From, Connection) ->
     {stop, normal, Connection};
@@ -291,7 +288,7 @@ handle_call({delete, {Key, Time}}, _From, Connection) ->
     {reply, Reply, Connection};
 
 handle_call({set, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
-    Bin = term_to_binary(Value),
+    Bin = (Connection#connection.to_binary)(Value),
     Bytes = integer_to_list(size(Bin)),
     Reply = send_storage_cmd(
         Connection,
@@ -303,7 +300,7 @@ handle_call({set, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
     {reply, Reply, Connection};
 
 handle_call({add, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
-    Bin = term_to_binary(Value),
+    Bin = (Connection#connection.to_binary)(Value),
     Bytes = integer_to_list(size(Bin)),
     Reply = send_storage_cmd(
         Connection,
@@ -315,7 +312,7 @@ handle_call({add, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
     {reply, Reply, Connection};
 
 handle_call({replace, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
-    Bin = term_to_binary(Value),
+    Bin = (Connection#connection.to_binary)(Value),
     Bytes = integer_to_list(size(Bin)),
     Reply = send_storage_cmd(
         Connection,
@@ -328,7 +325,7 @@ handle_call({replace, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
     {reply, Reply, Connection};
 
 handle_call({cas, {Key, Flag, ExpTime, CasUniq, Value}}, _From, Connection) ->
-    Bin = term_to_binary(Value),
+    Bin = (Connection#connection.to_binary)(Value),
     Bytes = integer_to_list(size(Bin)),
     Reply = send_storage_cmd(
         Connection,
@@ -374,14 +371,14 @@ send_storage_cmd(Connection, Cmd, Value) ->
 %% @doc send_get_cmd/2 function for retreival commands
 send_get_cmd(Connection, Cmd) ->
     gen_tcp:send(Connection#connection.socket, <<Cmd/binary, "\r\n">>),
-    Reply = recv_complex_get_reply(Connection#connection.socket),
+    Reply = recv_complex_get_reply(Connection),
     Reply.
 
 %% @private
 %% @doc send_gets_cmd/2 function for cas retreival commands
 send_gets_cmd(Connection, Cmd) ->
     gen_tcp:send(Connection#connection.socket, <<Cmd/binary, "\r\n">>),
-    Reply = recv_complex_gets_reply(Connection#connection.socket),
+    Reply = recv_complex_gets_reply(Connection),
     Reply.
 
 %% @private
@@ -397,7 +394,8 @@ recv_simple_reply() ->
 
 %% @private
 %% @doc receive function for respones containing VALUEs
-recv_complex_get_reply(Socket) ->
+recv_complex_get_reply(Connection) ->
+    Socket = Connection#connection.socket,
     receive
         %% For receiving get responses where the key does not exist
         {tcp, Socket, <<"END\r\n">>} -> ["END"];
@@ -407,7 +405,7 @@ recv_complex_get_reply(Socket) ->
               Parse = io_lib:fread("~s ~s ~u ~u\r\n", binary_to_list(Data)),
               {ok,[_,_,_,Bytes], ListBin} = Parse,
               Bin = list_to_binary(ListBin),
-              Reply = get_data(Socket, Bin, Bytes, length(ListBin)),
+              Reply = get_data(Connection, Bin, Bytes, length(ListBin)),
               [Reply];
           {error, closed} ->
               connection_closed
@@ -416,7 +414,8 @@ recv_complex_get_reply(Socket) ->
 
 %% @private
 %% @doc receive function for cas responses containing VALUEs
-recv_complex_gets_reply(Socket) ->
+recv_complex_gets_reply(Connection) ->
+    Socket = Connection#connection.socket,
     receive
         %% For receiving get responses where the key does not exist
         {tcp, Socket, <<"END\r\n">>} -> ["END"];
@@ -426,7 +425,7 @@ recv_complex_gets_reply(Socket) ->
               Parse = io_lib:fread("~s ~s ~u ~u ~u\r\n", binary_to_list(Data)),
               {ok,[_,_,_,Bytes,CasUniq], ListBin} = Parse,
               Bin = list_to_binary(ListBin),
-              Reply = get_data(Socket, Bin, Bytes, length(ListBin)),
+              Reply = get_data(Connection, Bin, Bytes, length(ListBin)),
               [CasUniq, Reply];
           {error, closed} ->
               connection_closed
@@ -435,15 +434,16 @@ recv_complex_gets_reply(Socket) ->
 
 %% @private
 %% @doc recieve loop to get all data
-get_data(Socket, Bin, Bytes, Len) when Len < Bytes + 7->
+get_data(Connection, Bin, Bytes, Len) when Len < Bytes + 7->
+    Socket = Connection#connection.socket,
     receive
         {tcp, Socket, Data} ->
             Combined = <<Bin/binary, Data/binary>>,
-            get_data(Socket, Combined, Bytes, size(Combined));
+            get_data(Connection, Combined, Bytes, size(Combined));
          {error, closed} ->
               connection_closed
         after ?TIMEOUT -> timeout
     end;
-get_data(_, Data, Bytes, _) ->
+get_data(Connection, Data, Bytes, _) ->
     <<Bin:Bytes/binary, "\r\nEND\r\n">> = Data,
-    binary_to_term(Bin).
+    (Connection#connection.from_binary)(Bin).
