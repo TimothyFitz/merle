@@ -76,7 +76,8 @@ stats(Args) ->
 
 %% @doc retrieve memcached version
 version() ->
-    gen_server2:call(?SERVER, {version}).
+    [Version] = gen_server2:call(?SERVER, {version}),
+    Version.
 
 %% @doc set the verbosity level of the logging output
 verbosity(Args) when is_integer(Args) ->
