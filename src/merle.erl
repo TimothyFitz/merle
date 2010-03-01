@@ -107,11 +107,11 @@ flushall(Delay) ->
 
 %% @doc retrieve value based off of key
 getkey(Key) ->
-    parse_end(gen_server2:call(?SERVER, {getkey,{maybe_atl(Key)}})).
+    parse_end(gen_server2:call(?SERVER, {get, get, maybe_atl(Key)})).
 
 %% @doc retrieve value based off of key for use with cas
 getskey(Key) ->
-    parse_end(gen_server2:call(?SERVER, {getskey,{maybe_atl(Key)}})).
+    parse_end(gen_server2:call(?SERVER, {get, gets, maybe_atl(Key)})).
 
 %% @doc delete a key
 delete(Key) ->
@@ -235,13 +235,9 @@ handle_call({generic, Term, Arg}, _From, Connection) ->
     Reply = send_generic_cmd(Connection, iolist_to_binary([Binterm, <<" ">>, Arg])),
     {reply, Reply, Connection};
 
-handle_call({getkey, {Key}}, _From, Connection) ->
-    Reply = send_get_cmd(Connection, iolist_to_binary([<<"get ">>, Key])),
+handle_call({get, Type, Key}, _From, Connection) ->
+    Reply = send_get_cmd(Connection, Type, Key),
     {reply, Reply, Connection};
-
-handle_call({getskey, {Key}}, _From, Connection) ->
-    Reply = send_gets_cmd(Connection, iolist_to_binary([<<"gets ">>, Key])),
-    {reply, [Reply], Connection};
 
 handle_call({delete, {Key, Time}}, _From, Connection) ->
     Reply = send_generic_cmd(
@@ -308,16 +304,10 @@ send_storage_cmd(Connection, Cmd, Value) ->
 
 %% @private
 %% @doc send_get_cmd/2 function for retreival commands
-send_get_cmd(Connection, Cmd) ->
-    gen_tcp:send(Connection#connection.socket, <<Cmd/binary, "\r\n">>),
-    Reply = recv_complex_get_reply(Connection),
-    Reply.
-
-%% @private
-%% @doc send_gets_cmd/2 function for cas retreival commands
-send_gets_cmd(Connection, Cmd) ->
-    gen_tcp:send(Connection#connection.socket, <<Cmd/binary, "\r\n">>),
-    Reply = recv_complex_gets_reply(Connection),
+send_get_cmd(Connection, Type, Key) ->
+    Message = iolist_to_binary([atom_to_binary(Type, latin1), <<" ">>, Key, <<"\r\n">>]),
+    gen_tcp:send(Connection#connection.socket, Message),
+    Reply = recv_complex_get_reply(Type, Connection),
     Reply.
 
 %% @private
@@ -331,41 +321,29 @@ recv_simple_reply() ->
     after ?TIMEOUT -> timeout
     end.
 
-%% @private
-%% @doc receive function for respones containing VALUEs
-recv_complex_get_reply(Connection) ->
+recv_complex_get_reply(Type, Connection) ->
     Socket = Connection#connection.socket,
     receive
         %% For receiving get responses where the key does not exist
         {tcp, Socket, <<"END\r\n">>} -> ["END"];
         %% For receiving get responses containing data
         {tcp, Socket, Data} ->
-            %% Reply format <<"VALUE SOMEKEY FLAG BYTES\r\nSOMEVALUE\r\nEND\r\n">>
-              Parse = io_lib:fread("~s ~s ~u ~u\r\n", binary_to_list(Data)),
-              {ok,[_,_,_,Bytes], ListBin} = Parse,
-              Bin = list_to_binary(ListBin),
-              Reply = get_data(Connection, Bin, Bytes, length(ListBin)),
-              [Reply];
-          {error, closed} ->
-              connection_closed
-    after ?TIMEOUT -> timeout
-    end.
-
-%% @private
-%% @doc receive function for cas responses containing VALUEs
-recv_complex_gets_reply(Connection) ->
-    Socket = Connection#connection.socket,
-    receive
-        %% For receiving get responses where the key does not exist
-        {tcp, Socket, <<"END\r\n">>} -> ["END"];
-        %% For receiving get responses containing data
-        {tcp, Socket, Data} ->
-            %% Reply format <<"VALUE SOMEKEY FLAG BYTES CASUNIQ\r\nSOMEVALUE\r\nEND\r\n">>
-              Parse = io_lib:fread("~s ~s ~u ~u ~u\r\n", binary_to_list(Data)),
-              {ok,[_,_,_,Bytes,CasUniq], ListBin} = Parse,
-              Bin = list_to_binary(ListBin),
-              Reply = get_data(Connection, Bin, Bytes, length(ListBin)),
-              [CasUniq, Reply];
+            case Type of
+                get -> 
+                    %% Reply format <<"VALUE SOMEKEY FLAG BYTES\r\nSOMEVALUE\r\nEND\r\n">>
+                    Parse = io_lib:fread("~s ~s ~u ~u\r\n", binary_to_list(Data)),
+                    {ok,[_,_,_,Bytes], ListBin} = Parse,
+                    Bin = list_to_binary(ListBin),
+                    Reply = get_data(Connection, Bin, Bytes, length(ListBin)),
+                    [Reply];
+                gets ->
+                    %% Reply format <<"VALUE SOMEKEY FLAG BYTES CASUNIQ\r\nSOMEVALUE\r\nEND\r\n">>
+                    Parse = io_lib:fread("~s ~s ~u ~u ~u\r\n", binary_to_list(Data)),
+                    {ok,[_,_,_,Bytes,CasUniq], ListBin} = Parse,
+                    Bin = list_to_binary(ListBin),
+                    Reply = get_data(Connection, Bin, Bytes, length(ListBin)),
+                    [CasUniq, Reply]
+            end;
           {error, closed} ->
               connection_closed
     after ?TIMEOUT -> timeout
