@@ -76,53 +76,42 @@ maybe_itl(Integer) ->
 
 %% @doc retrieve memcached stats
 stats() ->
-    gen_server2:call(?SERVER, {stats}).
+    gen_server2:call(?SERVER, {generic, stats}).
 
 %% @doc retrieve memcached stats based on args
-stats(Args) when is_atom(Args)->
-    stats(atom_to_list(Args));
 stats(Args) ->
-    gen_server2:call(?SERVER, {stats, {Args}}).
+    gen_server2:call(?SERVER, {generic, stats, {maybe_atl(Args)}}).
+
+parse_ok(["OK"]) -> ok;
+parse_ok([X]) -> X.
+
+parse_end(["END"]) -> undefined;
+parse_end([X]) -> X.
 
 %% @doc retrieve memcached version
 version() ->
-    [Version] = gen_server2:call(?SERVER, {version}),
+    [Version] = gen_server2:call(?SERVER, {generic, version}),
     Version.
 
 %% @doc set the verbosity level of the logging output
 verbosity(Args)->
-    case gen_server2:call(?SERVER, {verbosity, {maybe_itl(Args)}}) of
-        ["OK"] -> ok;
-        [X] -> X
-    end.
+    parse_ok(gen_server2:call(?SERVER, {generic, verbosity, {maybe_itl(Args)}})).
 
 %% @doc invalidate all existing items immediately
 flushall() ->
-    case gen_server2:call(?SERVER, {flushall}) of
-        ["OK"] -> ok;
-        [X] -> X
-    end.
+    parse_ok(gen_server2:call(?SERVER, {generic, flush_all})).
 
 %% @doc invalidate all existing items based on the expire time argument
 flushall(Delay) ->
-    case gen_server2:call(?SERVER, {flushall, {maybe_itl(Delay)}}) of
-        ["OK"] -> ok;
-        [X] -> X
-    end.
+    parse_ok(gen_server2:call(?SERVER, {generic, flushall, {maybe_itl(Delay)}})).
 
 %% @doc retrieve value based off of key
 getkey(Key) ->
-    case gen_server2:call(?SERVER, {getkey,{maybe_atl(Key)}}) of
-        ["END"] -> undefined;
-        [X] -> X
-    end.
+    parse_end(gen_server2:call(?SERVER, {getkey,{maybe_atl(Key)}})).
 
 %% @doc retrieve value based off of key for use with cas
 getskey(Key) ->
-    case gen_server2:call(?SERVER, {getskey,{maybe_atl(Key)}}) of
-        ["END"] -> undefined;
-        [X] -> X
-    end.
+    parse_end(gen_server2:call(?SERVER, {getskey,{maybe_atl(Key)}})).
 
 %% @doc delete a key
 delete(Key) ->
@@ -160,30 +149,31 @@ parse_store(["STORED"]) -> ok;
 parse_store(["NOT_STORED"]) -> not_stored;
 parse_store([X]) -> X.
 
+
+mutate(Type, Key, Value) ->
+    Flag = random:uniform(?RANDOM_MAX),
+    mutate(Type, Key, Flag, "0", Value).
+mutate(Type, Key, Flag, ExpTime, Value) ->
+    Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
+    parse_store(gen_server2:call(?SERVER, {Type, Args})).
+
 %% @doc Store a key/value pair.
 set(Key, Value) ->
-    Flag = random:uniform(?RANDOM_MAX),
-    set(Key, Flag, "0", Value).
+    mutate(set, Key, Value).
 set(Key, Flag, ExpTime, Value) ->
-    Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
-    parse_store(gen_server2:call(?SERVER, {set, Args})).
+    mutate(set, Key, Flag, ExpTime, Value).
 
 %% @doc Store a key/value pair if it doesn't already exist.
 add(Key, Value) ->
-    Flag = random:uniform(?RANDOM_MAX),
-    add(Key, Flag, "0", Value).
+    mutate(add, Key, Value).
 add(Key, Flag, ExpTime, Value) ->
-    Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
-    parse_store(gen_server2:call(?SERVER, {add, Args})).
+    mutate(add, Key, Flag, ExpTime, Value).
 
 %% @doc Replace an existing key/value pair.
 replace(Key, Value) ->
-    Flag = random:uniform(?RANDOM_MAX),
-    replace(Key, integer_to_list(Flag), "0", Value).
-
+    mutate(replace, Key, Value).
 replace(Key, Flag, ExpTime, Value) ->
-    Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
-    parse_store(gen_server2:call(?SERVER, {replace, Args})).
+    mutate(replace, Key, Flag, ExpTime, Value).
 
 %% @doc Store a key/value pair if possible.
 cas(Key, CasUniq, Value) ->
@@ -214,14 +204,14 @@ create(Socket, Serializer) ->
     ok = gen_tcp:controlling_process(Socket, Pid),
     Pid.
 
+%% @private
+start_link(Args) ->
+    gen_server2:start_link({local, ?SERVER}, ?MODULE, Args, []).
+
 %% @doc disconnect from memcached
 disconnect() ->
     {'EXIT', {normal, _}} = (catch gen_server2:call(?SERVER, {stop})),
     ok.
-
-%% @private
-start_link(Args) ->
-    gen_server2:start_link({local, ?SERVER}, ?MODULE, Args, []).
 
 %% @private
 init([{endpoint, Host, Port}, Serializer]) ->
@@ -235,29 +225,14 @@ init([{socket, Socket}, Serializer]) ->
 
 handle_call({stop}, _From, Connection) ->
     {stop, normal, Connection};
-
-handle_call({stats}, _From, Connection) ->
-    Reply = send_generic_cmd(Connection, iolist_to_binary([<<"stats">>])),
+    
+handle_call({generic, Term}, _From, Connection) ->
+    Reply = send_generic_cmd(Connection, atom_to_binary(Term, latin1)),
     {reply, Reply, Connection};
-
-handle_call({stats, {Args}}, _From, Connection) ->
-    Reply = send_generic_cmd(Connection, iolist_to_binary([<<"stats ">>, Args])),
-    {reply, Reply, Connection};
-
-handle_call({version}, _From, Connection) ->
-    Reply = send_generic_cmd(Connection, iolist_to_binary([<<"version">>])),
-    {reply, Reply, Connection};
-
-handle_call({verbosity, {Args}}, _From, Connection) ->
-    Reply = send_generic_cmd(Connection, iolist_to_binary([<<"verbosity ">>, Args])),
-    {reply, Reply, Connection};
-
-handle_call({flushall}, _From, Connection) ->
-    Reply = send_generic_cmd(Connection, iolist_to_binary([<<"flush_all">>])),
-    {reply, Reply, Connection};
-
-handle_call({flushall, {Delay}}, _From, Connection) ->
-    Reply = send_generic_cmd(Connection, iolist_to_binary([<<"flush_all ">>, Delay])),
+    
+handle_call({generic, Term, Arg}, _From, Connection) ->
+    Binterm = atom_to_binary(Term, latin1),
+    Reply = send_generic_cmd(Connection, iolist_to_binary([Binterm, <<" ">>, Arg])),
     {reply, Reply, Connection};
 
 handle_call({getkey, {Key}}, _From, Connection) ->
@@ -276,51 +251,27 @@ handle_call({delete, {Key, Time}}, _From, Connection) ->
     {reply, Reply, Connection};
 
 handle_call({set, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
-    Bin = (Connection#connection.to_binary)(Value),
-    Bytes = integer_to_list(size(Bin)),
-    Reply = send_storage_cmd(
-        Connection,
-        iolist_to_binary([
-            <<"set ">>, Key, <<" ">>, Flag, <<" ">>, ExpTime, <<" ">>, Bytes
-        ]),
-        Bin
-    ),
-    {reply, Reply, Connection};
-
+    value_mutate(<<"set">>, Key, Flag, ExpTime, Value, Connection);
+    
 handle_call({add, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
-    Bin = (Connection#connection.to_binary)(Value),
-    Bytes = integer_to_list(size(Bin)),
-    Reply = send_storage_cmd(
-        Connection,
-        iolist_to_binary([
-            <<"add ">>, Key, <<" ">>, Flag, <<" ">>, ExpTime, <<" ">>, Bytes
-        ]),
-        Bin
-    ),
-    {reply, Reply, Connection};
+    value_mutate(<<"add">>, Key, Flag, ExpTime, Value, Connection);
 
 handle_call({replace, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
-    Bin = (Connection#connection.to_binary)(Value),
-    Bytes = integer_to_list(size(Bin)),
-    Reply = send_storage_cmd(
-        Connection,
-        iolist_to_binary([
-            <<"replace ">>, Key, <<" ">>, Flag, <<" ">>, ExpTime, <<" ">>,
-            Bytes
-        ]),
-        Bin
-    ),
-    {reply, Reply, Connection};
+    value_mutate(<<"replace">>, Key, Flag, ExpTime, Value, Connection);
 
 handle_call({cas, {Key, Flag, ExpTime, CasUniq, Value}}, _From, Connection) ->
+    value_mutate(<<"cas">>, Key, Flag, ExpTime, Value, [<<" ">>, CasUniq], Connection).
+    
+value_mutate(Type, Key, Flag, ExpTime, Value, Connection) ->
+    value_mutate(Type, Key, Flag, ExpTime, Value, [], Connection).
+
+value_mutate(Type, Key, Flag, ExpTime, Value, Extras, Connection) ->
     Bin = (Connection#connection.to_binary)(Value),
     Bytes = integer_to_list(size(Bin)),
+    Command = [Type, <<" ">>, Key, <<" ">>, Flag, <<" ">>, ExpTime, <<" ">>, Bytes] ++ Extras,
     Reply = send_storage_cmd(
         Connection,
-        iolist_to_binary([
-            <<"cas ">>, Key, <<" ">>, Flag, <<" ">>, ExpTime, <<" ">>, Bytes,
-            <<" ">>, CasUniq
-        ]),
+        iolist_to_binary(Command),
         Bin
     ),
     {reply, Reply, Connection}.
@@ -409,7 +360,7 @@ recv_complex_gets_reply(Connection) ->
         {tcp, Socket, <<"END\r\n">>} -> ["END"];
         %% For receiving get responses containing data
         {tcp, Socket, Data} ->
-            %% Reply format <<"VALUE SOMEKEY FLAG BYTES\r\nSOMEVALUE\r\nEND\r\n">>
+            %% Reply format <<"VALUE SOMEKEY FLAG BYTES CASUNIQ\r\nSOMEVALUE\r\nEND\r\n">>
               Parse = io_lib:fread("~s ~s ~u ~u ~u\r\n", binary_to_list(Data)),
               {ok,[_,_,_,Bytes,CasUniq], ListBin} = Parse,
               Bin = list_to_binary(ListBin),
