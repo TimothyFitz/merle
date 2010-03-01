@@ -13,7 +13,7 @@ mocked_socket_tests() ->
             fun (Socket) ->
                 erlymock_tcp:strict(Socket,<<"get test\r\n">>, [{reply, <<"END\r\n">>}])
             end,
-            fun () -> undefined = merle:getkey("test") end
+            fun () -> undefined = merle:get("test") end
         }, {
             "Delete Test",
             fun (Socket) ->
@@ -31,7 +31,7 @@ mocked_socket_tests() ->
                     [{reply, iolist_to_binary([<<"VALUE test 0 ">>, FooSize, <<"\r\n">>, Foo, <<"\r\nEND\r\n">>])}]
                 )
             end,
-            fun () -> "foo" = merle:getkey("test") end
+            fun () -> "foo" = merle:get("test") end
         }, {
             "Get Complex Value Test",
             fun (Socket) ->
@@ -43,13 +43,13 @@ mocked_socket_tests() ->
                     [{reply, iolist_to_binary([<<"VALUE test 0 ">>, FooSize, <<"\r\n">>, Foo, <<"\r\nEND\r\n">>])}]
                 )
             end,
-            fun () -> {bar, "foo"} = merle:getkey("test") end
+            fun () -> {bar, "foo"} = merle:get("test") end
         }, {
             "Flush All Test",
             fun (Socket) ->
                 erlymock_tcp:strict(Socket, <<"flush_all\r\n">>, [{reply, <<"OK\r\n">>}])
             end,
-            fun () -> merle:flushall() end
+            fun () -> merle:flush_all() end
         }, {
             "Version Test",
             fun (Socket) ->
@@ -104,7 +104,7 @@ mocked_socket_noop_serializer_tests() ->
                     [{reply, iolist_to_binary([<<"VALUE test 0 3\r\nfoo\r\nEND\r\n">>])}]
                 )
             end,
-            fun () -> <<"foo">> = merle:getkey("test") end
+            fun () -> <<"foo">> = merle:get("test") end
         }, {
             "Set Test",
             fun (Socket) ->

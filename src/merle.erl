@@ -49,9 +49,9 @@
 
 %% gen_server2 API
 -export([
-    stats/0, stats/1, version/0, getkey/1, delete/2, set/4, add/4, replace/2,
-    replace/4, cas/5, set/2, flushall/0, flushall/1, verbosity/1, add/2,
-    cas/3, getskey/1, connect/0, connect/2, connect/3, delete/1, disconnect/0,
+    stats/0, stats/1, version/0, get/1, delete/2, set/4, add/4, replace/2,
+    replace/4, cas/5, set/2, flush_all/0, flush_all/1, verbosity/1, add/2,
+    cas/3, gets/1, connect/0, connect/2, connect/3, delete/1, disconnect/0,
     create/1, create/2, serializer/1
 ]).
 
@@ -102,21 +102,21 @@ version() ->
 %% @doc set the verbosity level of the logging output
 verbosity(Args)->
     parse_ok(gen_server2:call(?SERVER, {generic, verbosity, {maybe_itl(Args)}})).
-
+    
 %% @doc invalidate all existing items immediately
-flushall() ->
+flush_all() ->
     parse_ok(gen_server2:call(?SERVER, {generic, flush_all})).
 
 %% @doc invalidate all existing items based on the expire time argument
-flushall(Delay) ->
+flush_all(Delay) ->
     parse_ok(gen_server2:call(?SERVER, {generic, flushall, {maybe_itl(Delay)}})).
 
 %% @doc retrieve value based off of key
-getkey(Key) ->
+get(Key) ->
     parse_end(gen_server2:call(?SERVER, {get, get, maybe_atl(Key)})).
 
 %% @doc retrieve value based off of key for use with cas
-getskey(Key) ->
+gets(Key) ->
     parse_end(gen_server2:call(?SERVER, {get, gets, maybe_atl(Key)})).
 
 %% @doc delete a key
