@@ -156,17 +156,17 @@ delete(Key, Time) ->
 %%
 %% *Value* is the value you want to store.
 
+parse_store(["STORED"]) -> ok;
+parse_store(["NOT_STORED"]) -> not_stored;
+parse_store([X]) -> X.
+
 %% @doc Store a key/value pair.
 set(Key, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
     set(Key, Flag, "0", Value).
 set(Key, Flag, ExpTime, Value) ->
     Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
-    case gen_server2:call(?SERVER, {set, Args}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
+    parse_store(gen_server2:call(?SERVER, {set, Args})).
 
 %% @doc Store a key/value pair if it doesn't already exist.
 add(Key, Value) ->
@@ -174,11 +174,7 @@ add(Key, Value) ->
     add(Key, Flag, "0", Value).
 add(Key, Flag, ExpTime, Value) ->
     Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
-    case gen_server2:call(?SERVER, {add, Args}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
+    parse_store(gen_server2:call(?SERVER, {add, Args})).
 
 %% @doc Replace an existing key/value pair.
 replace(Key, Value) ->
@@ -187,11 +183,7 @@ replace(Key, Value) ->
 
 replace(Key, Flag, ExpTime, Value) ->
     Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
-    case gen_server2:call(?SERVER, {replace, Args}) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
+    parse_store(gen_server2:call(?SERVER, {replace, Args})).
 
 %% @doc Store a key/value pair if possible.
 cas(Key, CasUniq, Value) ->
@@ -200,12 +192,8 @@ cas(Key, CasUniq, Value) ->
 
 cas(Key, Flag, ExpTime, CasUniq, Value) ->
     Args = {cas, {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), maybe_itl(CasUniq), Value}},
-    case gen_server2:call(?SERVER, Args) of
-        ["STORED"] -> ok;
-        ["NOT_STORED"] -> not_stored;
-        [X] -> X
-    end.
-
+    parse_store(gen_server2:call(?SERVER, Args)).
+    
 %% @doc connect to memcached with defaults
 connect() ->
     connect(?DEFAULT_HOST, ?DEFAULT_PORT).    

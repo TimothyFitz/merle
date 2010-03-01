@@ -105,6 +105,13 @@ mocked_socket_noop_serializer_tests() ->
                 )
             end,
             fun () -> <<"foo">> = merle:getkey("test") end
+        }, {
+            "Set Test",
+            fun (Socket) ->
+                erlymock_tcp:strict(Socket, <<"set tkey 0 60 5\r\n">>, []),
+                erlymock_tcp:strict(Socket, <<"value\r\n">>, [{reply, <<"STORED\r\n">>}])
+            end,
+            fun () -> ok = merle:set("tkey", 0, 60, <<"value">>) end
         }
     ].
        
@@ -117,12 +124,17 @@ two_step_fixture(FixtureName, Fixture, Tests) ->
     ).
     
 mocked_socket_fixture_test_() ->
-    two_step_fixture("Mocked Socket (term_to_binary) Fixture", fun mocked_socket_fixture/2, mocked_socket_tests()).
+    CreateDefault = fun (Socket) -> merle:create(Socket) end,
+    Fixture = mocked_socket_fixture_template(CreateDefault),
+    two_step_fixture("Mocked Socket (term_to_binary) Fixture", Fixture, mocked_socket_tests()).
 
 mocked_socket_noop_serializer_fixture_test_() ->
+    Noop = fun (X) -> X end,
+    CreateNoop = fun (Socket) -> merle:create(Socket, {Noop, Noop}) end,
+    Fixture = mocked_socket_fixture_template(CreateNoop),
     two_step_fixture(
         "Mocked Socket (noop serializer) Fixture", 
-        fun mocked_socket_noop_serializer_fixture/2, 
+        Fixture, 
         mocked_socket_noop_serializer_tests()
     ).
        
@@ -142,14 +154,5 @@ mocked_socket_fixture_template(Create) ->
         end
     end.
     
-mocked_socket_fixture(MockSetup, ActualRun) ->
-    CreateDefault = fun (Socket) -> merle:create(Socket) end,
-    (mocked_socket_fixture_template(CreateDefault))(MockSetup, ActualRun).
-    
-mocked_socket_noop_serializer_fixture(MockSetup, ActualRun) ->
-    Noop = fun (X) -> X end,
-    CreateNoop = fun (Socket) -> merle:create(Socket, {Noop, Noop}) end,
-    (mocked_socket_fixture_template(CreateNoop))(MockSetup, ActualRun).
-
 % Pull in and test: incr/decr
 % Pull in and test: ketama
