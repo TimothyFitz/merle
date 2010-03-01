@@ -129,8 +129,7 @@ mocked_socket_fixture_test_() ->
     two_step_fixture("Mocked Socket (term_to_binary) Fixture", Fixture, mocked_socket_tests()).
 
 mocked_socket_noop_serializer_fixture_test_() ->
-    Noop = fun (X) -> X end,
-    CreateNoop = fun (Socket) -> merle:create(Socket, {Noop, Noop}) end,
+    CreateNoop = fun (Socket) -> merle:create(Socket, merle:serializer(noop)) end,
     Fixture = mocked_socket_fixture_template(CreateNoop),
     two_step_fixture(
         "Mocked Socket (noop serializer) Fixture", 

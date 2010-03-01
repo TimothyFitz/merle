@@ -43,7 +43,6 @@
 -define(RANDOM_MAX, 65535).
 -define(DEFAULT_HOST, "localhost").
 -define(DEFAULT_PORT, 11211).
--define(DEFAULT_SERIALIZER, {fun term_to_binary/1, fun binary_to_term/1}).
 -define(TCP_OPTS, [
     binary, {packet, raw}, {nodelay, true},{reuseaddr, true}, {active, true}
 ]).
@@ -53,7 +52,7 @@
     stats/0, stats/1, version/0, getkey/1, delete/2, set/4, add/4, replace/2,
     replace/4, cas/5, set/2, flushall/0, flushall/1, verbosity/1, add/2,
     cas/3, getskey/1, connect/0, connect/2, connect/3, delete/1, disconnect/0,
-    create/1, create/2
+    create/1, create/2, serializer/1
 ]).
 
 %% gen_server2 callbacks
@@ -73,6 +72,13 @@ maybe_itl(Integer) when is_integer(Integer) ->
     integer_to_list(Integer);
 maybe_itl(Integer) ->
     Integer.
+    
+serializer(Type) ->
+    case Type of
+        default -> serializer(term_to_binary);
+        term_to_binary -> {fun term_to_binary/1, fun binary_to_term/1};
+        noop -> {fun (X) -> X end, fun (X) -> X end}
+    end.
 
 %% @doc retrieve memcached stats
 stats() ->
@@ -149,13 +155,12 @@ parse_store(["STORED"]) -> ok;
 parse_store(["NOT_STORED"]) -> not_stored;
 parse_store([X]) -> X.
 
-
 mutate(Type, Key, Value) ->
     Flag = random:uniform(?RANDOM_MAX),
     mutate(Type, Key, Flag, "0", Value).
 mutate(Type, Key, Flag, ExpTime, Value) ->
     Args = {maybe_atl(Key), maybe_itl(Flag), maybe_itl(ExpTime), Value},
-    parse_store(gen_server2:call(?SERVER, {Type, Args})).
+    parse_store(gen_server2:call(?SERVER, {mutate, Type, Args})).
 
 %% @doc Store a key/value pair.
 set(Key, Value) ->
@@ -189,7 +194,7 @@ connect() ->
     connect(?DEFAULT_HOST, ?DEFAULT_PORT).    
     
 connect(Host, Port) ->
-    connect(Host, Port, ?DEFAULT_SERIALIZER).
+    connect(Host, Port, serializer(default)).
 
 %% @doc connect to memcached
 connect(Host, Port, Serializer) ->
@@ -197,7 +202,7 @@ connect(Host, Port, Serializer) ->
 
 %% Create a server from an existing connection
 create(Socket) ->
-    create(Socket, ?DEFAULT_SERIALIZER).
+    create(Socket, serializer(default)).
     
 create(Socket, Serializer) ->
     {ok, Pid} = start_link([{socket, Socket}, Serializer]),
@@ -245,21 +250,12 @@ handle_call({delete, {Key, Time}}, _From, Connection) ->
         iolist_to_binary([<<"delete ">>, Key, <<" ">>, Time])
     ),
     {reply, Reply, Connection};
-
-handle_call({set, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
-    value_mutate(<<"set">>, Key, Flag, ExpTime, Value, Connection);
     
-handle_call({add, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
-    value_mutate(<<"add">>, Key, Flag, ExpTime, Value, Connection);
-
-handle_call({replace, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
-    value_mutate(<<"replace">>, Key, Flag, ExpTime, Value, Connection);
+handle_call({mutate, Type, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
+    value_mutate(atom_to_binary(Type, latin1), Key, Flag, ExpTime, Value, [], Connection);
 
 handle_call({cas, {Key, Flag, ExpTime, CasUniq, Value}}, _From, Connection) ->
     value_mutate(<<"cas">>, Key, Flag, ExpTime, Value, [<<" ">>, CasUniq], Connection).
-    
-value_mutate(Type, Key, Flag, ExpTime, Value, Connection) ->
-    value_mutate(Type, Key, Flag, ExpTime, Value, [], Connection).
 
 value_mutate(Type, Key, Flag, ExpTime, Value, Extras, Connection) ->
     Bin = (Connection#connection.to_binary)(Value),
