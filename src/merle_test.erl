@@ -112,6 +112,12 @@ mocked_socket_noop_serializer_tests() ->
                 erlymock_tcp:strict(Socket, <<"value\r\n">>, [{reply, <<"STORED\r\n">>}])
             end,
             fun () -> ok = merle:set("tkey", 0, 60, <<"value">>) end
+        }, {
+            "Increment Test",
+            fun (Socket) ->
+                erlymock_tcp:strict(Socket, <<"incr ikey 1\r\n">>, [{reply, <<"1\r\n">>}])
+            end,
+            fun () -> 1 = merle:incr("ikey") end
         }
     ].
        

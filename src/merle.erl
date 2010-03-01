@@ -52,7 +52,7 @@
     stats/0, stats/1, version/0, get/1, delete/2, set/4, add/4, replace/2,
     replace/4, cas/5, set/2, flush_all/0, flush_all/1, verbosity/1, add/2,
     cas/3, gets/1, connect/0, connect/2, connect/3, delete/1, disconnect/0,
-    create/1, create/2, serializer/1
+    create/1, create/2, serializer/1, incr/1, incr/2, decr/1, decr/2
 ]).
 
 %% gen_server2 callbacks
@@ -128,6 +128,17 @@ delete(Key, Time) ->
         ["NOT_FOUND"] -> not_found;
         [X] -> X
     end.
+    
+incr(Key) ->
+    incr(Key, 1).
+incr(Key, Value) ->
+    gen_server2:call(?SERVER, {counter, incr, Key, maybe_itl(Value)}).
+    
+decr(Key) ->
+    decr(Key, 1).
+decr(Key, Value) ->
+    gen_server2:call(?SERVER, {counter, decr, Key, maybe_itl(Value)}).
+    
 
 %% Time is the amount of time in seconds
 %% the client wishes the server to refuse
@@ -250,6 +261,11 @@ handle_call({delete, {Key, Time}}, _From, Connection) ->
         iolist_to_binary([<<"delete ">>, Key, <<" ">>, Time])
     ),
     {reply, Reply, Connection};
+    
+handle_call({counter, Type, Key, Value}, _From, Connection) ->
+    Cmd = atom_to_binary(Type, latin1),
+    [CounterString] = send_generic_cmd(Connection, iolist_to_binary([Cmd, <<" ">>, Key, <<" ">>, Value])),
+    {reply, list_to_integer(CounterString), Connection};
     
 handle_call({mutate, Type, {Key, Flag, ExpTime, Value}}, _From, Connection) ->
     value_mutate(atom_to_binary(Type, latin1), Key, Flag, ExpTime, Value, [], Connection);
